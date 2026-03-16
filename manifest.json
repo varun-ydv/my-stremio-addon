@@ -1,0 +1,10 @@
+{
+    "id": "org.varunyadav.odaddon",
+    "version": "1.0.0",
+    "name": "Custom OD Streams",
+    "description": "Stream TV shows directly from custom open directory.",
+    "resources": ["stream"],
+    "types": ["series"],
+    "catalogs": [],
+    "idPrefixes": ["tt"]
+}
