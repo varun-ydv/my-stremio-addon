@@ -25,28 +25,38 @@ app.get("/stream/:type/:id.json", async (req, res) => {
         const metadataResponse = await axios.get(`https://v3-cinemeta.strem.io/meta/series/${imdbId}.json`);
         const showTitle = metadataResponse.data.meta.name;
 
-        // MATCHING THE SPECIFIC OD FORMAT:
-        // Folder Name: "3 Body Problem" 
-        // Subfolder: "Season 1"
-        // Note: Filenames in ODs vary wildly, so we link to the likely folder path 
-        // or a common filename pattern like s01e01.mp4
-        
         const encodedTitle = encodeURIComponent(showTitle);
-        const sPadded = String(season).padStart(2, "0");
-        const ePadded = String(episode).padStart(2, "0");
+        const seasonFolder = `Season%20${season}`;
+        const targetEpisode = `S${String(season).padStart(2, "0")}E${String(episode).padStart(2, "0")}`;
 
-        // Patterns common in this specific OD
-        const streamUrl = `${OD_BASE_URL}${encodedTitle}/Season%20${season}/${encodedTitle}.S${sPadded}E${ePadded}.1080p.mp4`;
+        const folderUrl = `${OD_BASE_URL}${encodedTitle}/${seasonFolder}/`;
+        
+        // SMART SCRAPER: Fetch the directory listing to find the exact file
+        const folderPage = await axios.get(folderUrl);
+        const folderHtml = folderPage.data;
 
-        res.json({
-            streams: [
-                {
-                    title: `OD Direct Stream - S${season} E${episode}`,
-                    url: streamUrl
-                }
-            ]
-        });
+        // Find the link that contains our SxxExx episode ID
+        // This regex looks for an <a> tag where the href or text contains our S01E01 pattern
+        const linkRegex = new RegExp(`href="([^"]*${targetEpisode}[^"]*)"`, "i");
+        const match = folderHtml.match(linkRegex);
+
+        if (match && match[1]) {
+            const fileName = match[1];
+            const fullStreamUrl = fileName.startsWith("http") ? fileName : `${folderUrl}${fileName}`;
+
+            return res.json({
+                streams: [
+                    {
+                        title: `Smart Direct Stream - S${season} E${episode}`,
+                        url: fullStreamUrl
+                    }
+                ]
+            });
+        }
+
+        res.json({ streams: [] });
     } catch (error) {
+        console.error("Scraper Error:", error.message);
         res.json({ streams: [] });
     }
 });
