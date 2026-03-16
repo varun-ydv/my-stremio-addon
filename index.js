@@ -67,7 +67,12 @@ app.get("/stream/:type/:id.json", async (req, res) => {
     }
 });
 
-app.listen(PORT, () => {
-    console.log(`Addon active on http://localhost:${PORT}`);
-    console.log(`Manifest URL: http://localhost:${PORT}/manifest.json`);
-});
+// Export the app for Vercel
+module.exports = app;
+
+if (require.main === module) {
+    app.listen(PORT, () => {
+        console.log(`Addon active on http://localhost:${PORT}`);
+        console.log(`Manifest URL: http://localhost:${PORT}/manifest.json`);
+    });
+}
