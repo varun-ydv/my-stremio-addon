@@ -20,45 +20,55 @@ app.get("/stream/:type/:id.json", async (req, res) => {
     if (type !== "series") return res.json({ streams: [] });
 
     const [imdbId, season, episode] = id.split(":");
+    const streams = [];
+
+    // DEBUG FALLBACK: Always send a link so the user knows the addon is alive
+    streams.push({
+        title: "📡 Addon is Online - Waiting for Scrape...",
+        url: "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4"
+    });
 
     try {
         const metadataResponse = await axios.get(`https://v3-cinemeta.strem.io/meta/series/${imdbId}.json`);
         const showTitle = metadataResponse.data.meta.name;
 
+        // The OD uses specific names, e.g., "3 Body Problem"
         const encodedTitle = encodeURIComponent(showTitle);
-        const seasonFolder = `Season%20${season}`;
-        const targetEpisode = `S${String(season).padStart(2, "0")}E${String(episode).padStart(2, "0")}`;
-
-        const folderUrl = `${OD_BASE_URL}${encodedTitle}/${seasonFolder}/`;
+        const folderUrl = `${OD_BASE_URL}${encodedTitle}/Season%20${season}/`;
         
-        // SMART SCRAPER: Fetch the directory listing to find the exact file
-        const folderPage = await axios.get(folderUrl);
+        const folderPage = await axios.get(folderUrl, { timeout: 5000 });
         const folderHtml = folderPage.data;
 
-        // Find the link that contains our SxxExx episode ID
-        // This regex looks for an <a> tag where the href or text contains our S01E01 pattern
-        const linkRegex = new RegExp(`href="([^"]*${targetEpisode}[^"]*)"`, "i");
+        // Search for SxxExx (e.g., S01E01)
+        const sPadded = String(season).padStart(2, "0");
+        const ePadded = String(episode).padStart(2, "0");
+        const target = `S${sPadded}E${ePadded}`;
+
+        // Find file link in HTML
+        const linkRegex = new RegExp(`href="([^"]*${target}[^"]*)"`, "i");
         const match = folderHtml.match(linkRegex);
 
         if (match && match[1]) {
-            const fileName = match[1];
-            const fullStreamUrl = fileName.startsWith("http") ? fileName : `${folderUrl}${fileName}`;
+            let fileName = match[1];
+            // Decode and re-encode to ensure it's a valid URL
+            const fullStreamUrl = new URL(fileName, folderUrl).href;
 
-            return res.json({
-                streams: [
-                    {
-                        title: `Smart Direct Stream - S${season} E${episode}`,
-                        url: fullStreamUrl
-                    }
-                ]
+            streams.unshift({
+                title: `✅ play: ${showTitle} S${season}E${episode}`,
+                url: fullStreamUrl,
+                behaviorHints: {
+                    notWebReady: true // Hint that it might be .mkv
+                }
             });
         }
-
-        res.json({ streams: [] });
     } catch (error) {
-        console.error("Scraper Error:", error.message);
-        res.json({ streams: [] });
+        streams.push({
+            title: `❌ Error: ${error.message.substring(0, 30)}`,
+            url: "https://error.com"
+        });
     }
+
+    res.json({ streams });
 });
 
 module.exports = app;
