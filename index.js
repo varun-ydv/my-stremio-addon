@@ -22,57 +22,67 @@ app.get("/stream/:type/:id.json", async (req, res) => {
     const [imdbId, season, episode] = id.split(":");
     const streams = [];
 
+    const getFolderContent = async (title) => {
+        const variations = [title, title.replace(/ /g, ".")];
+        
+        for (const v of variations) {
+            const folderUrl = `${OD_BASE_URL}${encodeURIComponent(v)}/Season%20${season}/`;
+            try {
+                const response = await axios.get(folderUrl, { 
+                    timeout: 8000,
+                    headers: { 
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Safari/537.36',
+                        'Referer': 'https://a.111477.xyz/',
+                        'Origin': 'https://a.111477.xyz'
+                    }
+                });
+                return { html: response.data, url: folderUrl };
+            } catch (e) {
+                if (e.response && e.response.status === 403) throw new Error("ACCESS_DENIED");
+                continue;
+            }
+        }
+        return null;
+    };
+
     try {
         const metadataResponse = await axios.get(`https://v3-cinemeta.strem.io/meta/series/${imdbId}.json`);
         const showTitle = metadataResponse.data.meta.name;
 
-        // 1. Prepare Folder URL
-        // We encode the title but specifically handle spaces as %20
-        const encodedTitle = encodeURIComponent(showTitle).replace(/%20/g, "%20");
-        const folderUrl = `${OD_BASE_URL}${encodedTitle}/Season%20${season}/`;
-        
-        // 2. Fetch Directory Listing
-        const folderPage = await axios.get(folderUrl, { timeout: 8000 });
-        const folderHtml = folderPage.data;
+        const folderData = await getFolderContent(showTitle);
 
-        // 3. Search for Episode (S01E01 format)
-        const sPadded = String(season).padStart(2, "0");
-        const ePadded = String(episode).padStart(2, "0");
-        const target = `S${sPadded}E${ePadded}`;
+        if (folderData) {
+            const sPadded = String(season).padStart(2, "0");
+            const ePadded = String(episode).padStart(2, "0");
+            const target = `S${sPadded}E${ePadded}`;
 
-        // Robust regex to extract href even with encoded symbols like %28 %29
-        const linkRegex = new RegExp(`href="([^"]*${target}[^"]*)"`, "i");
-        const match = folderHtml.match(linkRegex);
+            const linkRegex = new RegExp(`href="([^"]*${target}[^"]*)"`, "i");
+            const match = folderData.html.match(linkRegex);
 
-        if (match && match[1]) {
-            const rawHref = match[1];
-            
-            // Resolve the URL properly
-            // We use the URL constructor to handle the relative path resolution and encoding
-            const fullStreamUrl = new URL(rawHref, folderUrl).toString();
-
-            streams.push({
-                name: "OD-STREAM",
-                title: `🎬 PLAY: ${showTitle} [${target}]\n🔗 ${rawHref.substring(0, 30)}...`,
-                url: fullStreamUrl,
-                behaviorHints: {
-                    notWebReady: true
-                }
-            });
+            if (match && match[1]) {
+                const finalUrl = new URL(match[1], folderData.url).href;
+                streams.push({
+                    name: "OD-STREAM",
+                    title: `🚀 PLAY: ${showTitle} S${season}E${episode}`,
+                    url: finalUrl,
+                    behaviorHints: { notWebReady: true }
+                });
+            } else {
+                streams.push({ title: `🔍 No file for ${target} in ${showTitle}`, url: "https://error.com" });
+            }
         } else {
-            streams.push({
-                name: "OD-DEBUG",
-                title: `⚠️ File not found for ${target} in ${showTitle}`,
-                url: "https://error.com"
-            });
+            streams.push({ title: `❌ Show folder not found`, url: "https://error.com" });
         }
     } catch (error) {
-        console.error("Scraper Error:", error.message);
-        streams.push({
-            name: "OD-ERROR",
-            title: `🚫 Server Error: ${error.message}`,
-            url: "https://error.com"
-        });
+        if (error.message === "ACCESS_DENIED") {
+            streams.push({
+                name: "OD-BLOCKED",
+                title: `💩 Error 403: Site is blocking Vercel server.`,
+                url: "https://error.com"
+            });
+        } else {
+            streams.push({ title: `🚫 Error: ${error.message}`, url: "https://error.com" });
+        }
     }
 
     res.json({ streams });
@@ -80,5 +90,5 @@ app.get("/stream/:type/:id.json", async (req, res) => {
 
 module.exports = app;
 if (require.main === module) {
-    app.listen(PORT, () => console.log(`Live on ${PORT}`));
+    app.listen(PORT, () => console.log(`Smart Scraper Active`));
 }
